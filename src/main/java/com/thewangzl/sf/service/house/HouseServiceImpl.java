@@ -36,6 +36,7 @@ import com.thewangzl.sf.repository.SubwayRepository;
 import com.thewangzl.sf.repository.SubwayStationRepository;
 import com.thewangzl.sf.service.ServiceMultiResult;
 import com.thewangzl.sf.service.ServiceResult;
+import com.thewangzl.sf.service.search.ISearchService;
 import com.thewangzl.sf.web.controller.dto.HouseDTO;
 import com.thewangzl.sf.web.controller.dto.HouseDetailDTO;
 import com.thewangzl.sf.web.controller.dto.HousePictureDTO;
@@ -67,6 +68,9 @@ public class HouseServiceImpl implements IHouseService {
 	
 	@Autowired
 	private HouseTagRepository houseTagRepository;
+	
+	@Autowired
+	private ISearchService searchService;
 	
 	@Value("${qiniu.cdn.prefix}")
 	private String cdnPrefix;
@@ -268,6 +272,10 @@ public class HouseServiceImpl implements IHouseService {
 		house.setLastUpdateTime(new Date());
 		houseRepository.save(house);
 		
+		if(house.getStatus() == HouseStatus.PASSED.getValue()) {
+			this.searchService.index(house.getId());
+		}
+		
 		return ServiceResult.success();
 	}
 
@@ -350,6 +358,12 @@ public class HouseServiceImpl implements IHouseService {
         }
         houseRepository.updateStatus(id, status);
 		
+        //上架更新所用，其他情况都要删除所有
+        if(status == HouseStatus.PASSED.getValue()) {
+			this.searchService.index(id);
+		}else {
+			this.searchService.remove(id);
+		}
 		return ServiceResult.success();
 	}
 
