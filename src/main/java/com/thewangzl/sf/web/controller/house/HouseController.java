@@ -1,7 +1,7 @@
 package com.thewangzl.sf.web.controller.house;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.HttpSession;
 
@@ -10,12 +10,15 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.thewangzl.sf.base.ApiResponse;
 import com.thewangzl.sf.base.RentValueBlock;
+import com.thewangzl.sf.domain.SupportAddress;
+import com.thewangzl.sf.service.IUserService;
 import com.thewangzl.sf.service.ServiceMultiResult;
 import com.thewangzl.sf.service.ServiceResult;
 import com.thewangzl.sf.service.house.IAddressService;
@@ -24,6 +27,7 @@ import com.thewangzl.sf.web.controller.dto.HouseDTO;
 import com.thewangzl.sf.web.controller.dto.SubwayDTO;
 import com.thewangzl.sf.web.controller.dto.SubwayStationDTO;
 import com.thewangzl.sf.web.controller.dto.SupportAddressDTO;
+import com.thewangzl.sf.web.controller.dto.UserDTO;
 import com.thewangzl.sf.web.controller.form.RentSearch;
 
 @Controller
@@ -34,6 +38,9 @@ public class HouseController {
 	
 	@Autowired
 	private IHouseService houseService;
+	
+	@Autowired
+	private IUserService userService;
 
 	@GetMapping("/address/support/cities")
 	@ResponseBody
@@ -129,8 +136,36 @@ public class HouseController {
     	model.addAttribute("areaBlocks", RentValueBlock.AREA_BLOCK);
     	
     	model.addAttribute("currentPriceBlock", RentValueBlock.matchPrice(rentSearch.getPriceBlock()));
-    	model.addAttribute("currentAreaBlock", RentValueBlock.matchPrice(rentSearch.getAreaBlock()));
+    	model.addAttribute("currentAreaBlock", RentValueBlock.matchArea(rentSearch.getAreaBlock()));
     	
     	return "rent-list";
+    }
+    
+    @GetMapping("rent/house/show/{id}")
+    public String show(@PathVariable("id") Long id, Model model) {
+    	if(id < 1) {
+    		return "404";
+    	}
+    	ServiceResult<HouseDTO> serviceResult = this.houseService.findCompleteOne(id);
+    	if(!serviceResult.isSuccess()) {
+    		return "404";
+    	}
+    	HouseDTO houseDTO = serviceResult.getResult();
+    	Map<SupportAddress.Level, SupportAddressDTO>
+        addressMap = addressService.findCityAndRegion(houseDTO.getCityEnName(), houseDTO.getRegionEnName());
+
+		SupportAddressDTO city = addressMap.get(SupportAddress.Level.CITY);
+		SupportAddressDTO region = addressMap.get(SupportAddress.Level.REGION);
+		
+		model.addAttribute("city", city);
+		model.addAttribute("region", region);
+		
+		ServiceResult<UserDTO> userDTOServiceResult = userService.findById(houseDTO.getAdminId());
+		model.addAttribute("agent", userDTOServiceResult.getResult());
+		model.addAttribute("house", houseDTO);
+		
+		model.addAttribute("houseCountInDistrict", 0);//TODO es的聚合功能
+    	
+    	return "house-detail";
     }
 }

@@ -3,6 +3,7 @@ package com.thewangzl.sf.service.user;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.GrantedAuthority;
@@ -14,6 +15,8 @@ import com.thewangzl.sf.domain.User;
 import com.thewangzl.sf.repository.RoleRepository;
 import com.thewangzl.sf.repository.UserRepository;
 import com.thewangzl.sf.service.IUserService;
+import com.thewangzl.sf.service.ServiceResult;
+import com.thewangzl.sf.web.controller.dto.UserDTO;
 
 @Service
 public class UserService implements IUserService {
@@ -23,6 +26,9 @@ public class UserService implements IUserService {
 	
 	@Autowired
 	private RoleRepository roleRepository;
+	
+	@Autowired
+	private ModelMapper modelMapper;
 	
 	@Override
 	public User findByName(String userName) {
@@ -41,6 +47,16 @@ public class UserService implements IUserService {
 		}
 		
 		return user;
+	}
+
+	@Override
+	public ServiceResult<UserDTO> findById(Long id) {
+		User user = this.userRepository.findOne(id);
+		if (user == null) {
+			return ServiceResult.<UserDTO> notFound();
+		}
+		UserDTO userDTO = modelMapper.map(user, UserDTO.class);
+		return ServiceResult.of(userDTO);
 	}
 
 }

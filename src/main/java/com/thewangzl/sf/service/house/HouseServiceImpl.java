@@ -3,6 +3,7 @@ package com.thewangzl.sf.service.house;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import javax.persistence.criteria.Predicate;
 
@@ -17,6 +18,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.google.common.collect.Maps;
+import com.thewangzl.sf.base.HouseSort;
 import com.thewangzl.sf.base.HouseStatus;
 import com.thewangzl.sf.base.LoginUserUtil;
 import com.thewangzl.sf.domain.House;
@@ -352,7 +355,7 @@ public class HouseServiceImpl implements IHouseService {
 
 	@Override
 	public ServiceMultiResult<HouseDTO> query(RentSearch rentSearch) {
-		Sort sort = new Sort(Sort.Direction.DESC, "lastUpdateTime");
+		Sort sort = HouseSort.generateSort(rentSearch.getOrderBy(), rentSearch.getOrderDirection());
 		int page = rentSearch.getStart() / rentSearch.getSize();
 		
 		Pageable pageable = new PageRequest(page, rentSearch.getSize(), sort);
@@ -362,17 +365,46 @@ public class HouseServiceImpl implements IHouseService {
 			
 			predicate = cb.and(predicate, cb.equal(root.get("cityEnName"), rentSearch.getCityEnName()));
 			
+			if(HouseSort.DISTANCE_TO_SUBWAY_KEY.equals(rentSearch.getOrderBy())) {
+				predicate = cb.and(predicate, cb.gt(root.get(HouseSort.DISTANCE_TO_SUBWAY_KEY), -1));
+			}
 			return predicate;
 		};
 		Page<House> houses = this.houseRepository.findAll(specification, pageable);
+		
 		List<HouseDTO> houseDTOs = new ArrayList<>();
+		List<Long> houseIds = new ArrayList<>();
+		Map<Long, HouseDTO> id_houseMap = Maps.newHashMap();
+		
 		houses.forEach(house -> {
 			HouseDTO houseDTO = modelMapper.map(house, HouseDTO.class);
 			houseDTO.setCover(this.cdnPrefix + house.getCover());
 			houseDTOs.add(houseDTO);
+			
+			houseIds.add(house.getId());
+			id_houseMap.put(house.getId(), houseDTO);
 		});
 		
+		this.wrapperHouseList(houseIds, id_houseMap);
+		
 		return new ServiceMultiResult<>(houses.getTotalElements(), houseDTOs);
+	}
+	
+	private void wrapperHouseList(List<Long> houseIds, Map<Long, HouseDTO> id_houseMap) {
+		List<HouseDetail> details = this.houseDetailRepository.findAllByHouseIdIn(houseIds);
+		
+		details.forEach(detail -> {
+			HouseDTO houseDTO = id_houseMap.get(detail.getHouseId());
+			HouseDetailDTO detailDTO = modelMapper.map(detail, HouseDetailDTO.class);
+			houseDTO.setHouseDetail(detailDTO);
+			
+		});
+		
+		List<HouseTag> houseTags = this.houseTagRepository.findAllByHouseIdIn(houseIds);
+		houseTags.forEach(tag -> {
+			HouseDTO houseDTO = id_houseMap.get(tag.getHouseId());
+			houseDTO.getTags().add(tag.getName());
+		});
 	}
 
 }
