@@ -16,8 +16,7 @@ public class SearchServiceTests extends ApplicationTests {
 	@Test
 	public void testIndex() {
 		Long targetId = 15L;
-		boolean success = this.searchService.index(targetId);
-		Assert.assertEquals(true, success);
+		this.searchService.index(targetId);
 	}
 	
 	@Test 
