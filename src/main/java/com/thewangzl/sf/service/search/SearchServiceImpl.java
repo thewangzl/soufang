@@ -2,8 +2,14 @@ package com.thewangzl.sf.service.search;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+import org.elasticsearch.action.admin.indices.analyze.AnalyzeAction;
+import org.elasticsearch.action.admin.indices.analyze.AnalyzeRequestBuilder;
+import org.elasticsearch.action.admin.indices.analyze.AnalyzeResponse;
+import org.elasticsearch.action.admin.indices.analyze.AnalyzeResponse.AnalyzeToken;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
@@ -11,7 +17,6 @@ import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.index.reindex.BulkByScrollResponse;
@@ -19,8 +24,12 @@ import org.elasticsearch.index.reindex.DeleteByQueryAction;
 import org.elasticsearch.index.reindex.DeleteByQueryRequestBuilder;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.search.suggest.Suggest.Suggestion;
+import org.elasticsearch.search.suggest.SuggestBuilder;
+import org.elasticsearch.search.suggest.SuggestBuilders;
+import org.elasticsearch.search.suggest.completion.CompletionSuggestion;
+import org.elasticsearch.search.suggest.completion.CompletionSuggestionBuilder;
 import org.modelmapper.ModelMapper;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -28,6 +37,7 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Lists;
 import com.google.common.primitives.Longs;
 import com.thewangzl.sf.base.HouseSort;
 import com.thewangzl.sf.base.RentValueBlock;
@@ -38,6 +48,7 @@ import com.thewangzl.sf.repository.HouseDetailRepository;
 import com.thewangzl.sf.repository.HouseRepository;
 import com.thewangzl.sf.repository.HouseTagRepository;
 import com.thewangzl.sf.service.ServiceMultiResult;
+import com.thewangzl.sf.service.ServiceResult;
 import com.thewangzl.sf.web.controller.form.RentSearch;
 
 import lombok.extern.slf4j.Slf4j;
@@ -178,6 +189,9 @@ public class SearchServiceImpl implements ISearchService {
 	}
 	
 	private boolean create(HouseIndexTemplate indexTemplate) {
+		if(!this.updateSuggest(indexTemplate)) {
+			return false;
+		}
 		try {
 			IndexResponse indexResponse = this.esClient.prepareIndex(INDEX_NAME, INDEX_TYPE)//
 				.setSource(objectMapper.writeValueAsBytes(indexTemplate), XContentType.JSON).get()
@@ -191,6 +205,9 @@ public class SearchServiceImpl implements ISearchService {
 	}
 	
 	private boolean update(String esId,HouseIndexTemplate indexTemplate) {
+		if(!this.updateSuggest(indexTemplate)) {
+			return false;
+		}
 		try {
 			UpdateResponse response = this.esClient.prepareUpdate(INDEX_NAME, INDEX_TYPE, esId)//
 				.setDoc(objectMapper.writeValueAsBytes(indexTemplate), XContentType.JSON).get()
@@ -315,5 +332,83 @@ public class SearchServiceImpl implements ISearchService {
 			houseIds.add(Longs.tryParse(String.valueOf(hit.getSource().get(HouseIndexKey.HOUSE_ID))));
 		});
 		return new ServiceMultiResult<>(response.getHits().getTotalHits(), houseIds);
+	}
+
+	@Override
+	public ServiceResult<List<String>> suggest(String prefix) {
+		CompletionSuggestionBuilder suggestionBuilder = SuggestBuilders.completionSuggestion("suggest").prefix(prefix).size(5);
+		
+		SuggestBuilder suggestBuilder = new SuggestBuilder();
+		suggestBuilder.addSuggestion("autocomplete", suggestionBuilder);
+		
+		SearchRequestBuilder requestBuilder = this.esClient.prepareSearch(INDEX_NAME)//
+			.setTypes(INDEX_TYPE)//
+			.suggest(suggestBuilder)//
+			;
+		SearchResponse response = requestBuilder.get();
+		Suggestion suggestion = response.getSuggest().getSuggestion("autocomplete"); 
+		
+		int maxSuggest = 0;
+		Set<String> suggestSet = new HashSet<>();
+		for(Object term : suggestion.getEntries()) {
+			if(term instanceof CompletionSuggestion.Entry) {
+				CompletionSuggestion.Entry item = (CompletionSuggestion.Entry)term;
+				if(item.getOptions().isEmpty()) {
+					continue;
+				}
+				for(CompletionSuggestion.Entry.Option option : item.getOptions()) {
+					String tip = option.getText().string();
+					if(suggestSet.contains(tip)) {
+						continue;
+					}
+					suggestSet.add(tip);
+					maxSuggest++;
+				}
+			}
+			if(maxSuggest > 5) {
+				break;
+			}
+		}
+		List<String> result = Lists.newArrayList(suggestSet.toArray(new String[0]));
+		
+		return ServiceResult.<List<String>> of(result);
+	}
+	
+	private boolean updateSuggest(HouseIndexTemplate template) {
+		AnalyzeRequestBuilder requestBuilder  = new AnalyzeRequestBuilder(this.esClient, AnalyzeAction.INSTANCE,
+				INDEX_NAME,
+				template.getTitle(),
+				template.getLayoutDesc(),template.getRoundService(),
+				template.getTraffic(), template.getDescription(),
+				template.getSubwayLineName(),template.getSubwayStationName()
+				);
+		requestBuilder.setAnalyzer("ik_smart");
+		
+		AnalyzeResponse response = requestBuilder.get();
+		List<AnalyzeToken> tokens = response.getTokens();
+		if(tokens.isEmpty()) {
+			log.warn("Can not analyze token for house "+ template.getHouseId());
+			return false;
+		}
+		
+		List<HouseSuggest> suggests = new ArrayList<>();
+		for(AnalyzeToken token : tokens) {
+			//排除数字类型和 长度小于2的分词结果
+			if("<NUM>".equals(token.getType()) || token.getTerm().length() < 2) {
+				continue;
+			}
+			
+			HouseSuggest suggest = new HouseSuggest();
+			suggest.setInput(token.getTerm());
+			suggests.add(suggest);
+		}
+		
+		//定制化小区自动补全
+		HouseSuggest suggest = new HouseSuggest();
+		suggest.setInput(template.getDistrict());
+		suggests.add(suggest);
+		
+		template.setSuggests(suggests);
+		return true;
 	}
 }

@@ -1,5 +1,6 @@
 package com.thewangzl.sf.web.controller.house;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.google.common.base.Strings;
 import com.thewangzl.sf.base.ApiResponse;
 import com.thewangzl.sf.base.RentValueBlock;
 import com.thewangzl.sf.domain.SupportAddress;
@@ -23,6 +25,7 @@ import com.thewangzl.sf.service.ServiceMultiResult;
 import com.thewangzl.sf.service.ServiceResult;
 import com.thewangzl.sf.service.house.IAddressService;
 import com.thewangzl.sf.service.house.IHouseService;
+import com.thewangzl.sf.service.search.ISearchService;
 import com.thewangzl.sf.web.controller.dto.HouseDTO;
 import com.thewangzl.sf.web.controller.dto.SubwayDTO;
 import com.thewangzl.sf.web.controller.dto.SubwayStationDTO;
@@ -41,6 +44,27 @@ public class HouseController {
 	
 	@Autowired
 	private IUserService userService;
+	
+	@Autowired
+	private ISearchService searchService;
+	
+	
+	/**
+	 * 自动补全
+	 * @param prefix
+	 * @return
+	 */
+	@GetMapping("rent/house/autocomplete")
+	@ResponseBody
+	public ApiResponse autocomplete(@RequestParam(value="prefix") String prefix) {
+		if(Strings.isNullOrEmpty(prefix)) {
+			return ApiResponse.ofStatus(ApiResponse.Status.BAD_REQUEST);
+		}
+		
+		ServiceResult<List<String>> result = this.searchService.suggest(prefix);
+		
+		return ApiResponse.ofSuccess(result.getResult());
+	}
 
 	@GetMapping("/address/support/cities")
 	@ResponseBody

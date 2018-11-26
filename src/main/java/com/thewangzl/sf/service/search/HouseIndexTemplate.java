@@ -51,6 +51,8 @@ public class HouseIndexTemplate {
     private int rentWay;
 
     private List<String> tags;
+    
+    private List<HouseSuggest> suggests;
 
 
 }
