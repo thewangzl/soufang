@@ -1,5 +1,8 @@
 package com.thewangzl.sf.service.search;
 
+import com.thewangzl.sf.service.ServiceMultiResult;
+import com.thewangzl.sf.web.controller.form.RentSearch;
+
 /**
  * 检索接口
  * @author thewangzl
@@ -19,4 +22,6 @@ public interface ISearchService {
 	 * @param houseId
 	 */
 	void remove(Long houseId);
+	
+	ServiceMultiResult<Long> query(RentSearch rentSearch);
 }

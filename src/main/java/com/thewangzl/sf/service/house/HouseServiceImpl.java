@@ -2,6 +2,7 @@ package com.thewangzl.sf.service.house;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.thewangzl.sf.base.HouseSort;
 import com.thewangzl.sf.base.HouseStatus;
@@ -366,9 +368,40 @@ public class HouseServiceImpl implements IHouseService {
 		}
 		return ServiceResult.success();
 	}
+	
+	private List<HouseDTO> wrapperHouseResult(List<Long> houseIds){
+		List<HouseDTO> houseDTOs = new ArrayList<>();
+		
+		Map<Long,HouseDTO> idTohouseMap = new HashMap<>();
+		Iterable<House> houses = this.houseRepository.findAll(houseIds);
+		houses.forEach(house -> {
+			HouseDTO houseDTO = this.modelMapper.map(house, HouseDTO.class);
+			houseDTO.setCover(this.cdnPrefix + house.getCover());
+			idTohouseMap.put(house.getId(), houseDTO);
+		});
+		this.wrapperHouseList(houseIds, idTohouseMap);
+		
+		//矫正顺序
+		for(Long id : houseIds) {
+			houseDTOs.add(idTohouseMap.get(id));
+		}
+		return houseDTOs;
+	}
 
 	@Override
 	public ServiceMultiResult<HouseDTO> query(RentSearch rentSearch) {
+		if(rentSearch.getKeywords() != null && rentSearch.getKeywords() !=  "") {
+			ServiceMultiResult<Long> houseIds = this.searchService.query(rentSearch);
+			if(houseIds.getTotal() ==0) {
+				return new ServiceMultiResult<>(0, new ArrayList<>());
+			}
+			return new ServiceMultiResult<>(houseIds.getTotal(), this.wrapperHouseResult(houseIds.getResult()));
+		}
+		
+		return simpleQuery(rentSearch);
+	}
+
+	private ServiceMultiResult<HouseDTO> simpleQuery(RentSearch rentSearch) {
 		Sort sort = HouseSort.generateSort(rentSearch.getOrderBy(), rentSearch.getOrderDirection());
 		int page = rentSearch.getStart() / rentSearch.getSize();
 		
@@ -382,6 +415,13 @@ public class HouseServiceImpl implements IHouseService {
 			if(HouseSort.DISTANCE_TO_SUBWAY_KEY.equals(rentSearch.getOrderBy())) {
 				predicate = cb.and(predicate, cb.gt(root.get(HouseSort.DISTANCE_TO_SUBWAY_KEY), -1));
 			}
+			
+			if(!Strings.isNullOrEmpty(rentSearch.getRegionEnName()) && !"*".equals(rentSearch.getRegionEnName())) {
+				predicate = cb.and(predicate, cb.equal(root.get("regionEnName"), rentSearch.getRegionEnName()));
+			}
+			
+			//TODO other condition
+			
 			return predicate;
 		};
 		Page<House> houses = this.houseRepository.findAll(specification, pageable);
@@ -404,6 +444,11 @@ public class HouseServiceImpl implements IHouseService {
 		return new ServiceMultiResult<>(houses.getTotalElements(), houseDTOs);
 	}
 	
+	/**
+	 * 渲染详细信息及标签
+	 * @param houseIds
+	 * @param id_houseMap
+	 */
 	private void wrapperHouseList(List<Long> houseIds, Map<Long, HouseDTO> id_houseMap) {
 		List<HouseDetail> details = this.houseDetailRepository.findAllByHouseIdIn(houseIds);
 		

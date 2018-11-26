@@ -10,11 +10,15 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.index.reindex.BulkByScrollResponse;
 import org.elasticsearch.index.reindex.DeleteByQueryAction;
 import org.elasticsearch.index.reindex.DeleteByQueryRequestBuilder;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.search.sort.SortOrder;
 import org.modelmapper.ModelMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,12 +28,17 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.primitives.Longs;
+import com.thewangzl.sf.base.HouseSort;
+import com.thewangzl.sf.base.RentValueBlock;
 import com.thewangzl.sf.domain.House;
 import com.thewangzl.sf.domain.HouseDetail;
 import com.thewangzl.sf.domain.HouseTag;
 import com.thewangzl.sf.repository.HouseDetailRepository;
 import com.thewangzl.sf.repository.HouseRepository;
 import com.thewangzl.sf.repository.HouseTagRepository;
+import com.thewangzl.sf.service.ServiceMultiResult;
+import com.thewangzl.sf.web.controller.form.RentSearch;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -227,5 +236,84 @@ public class SearchServiceImpl implements ISearchService {
 		} catch (JsonProcessingException e) {
 			log.error("Json encode error for " + message);
 		}
+	}
+
+	@Override
+	public ServiceMultiResult<Long> query(RentSearch rentSearch) {
+		BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+		boolQueryBuilder.filter(
+			QueryBuilders.termQuery(HouseIndexKey.CITY_EN_NAME, rentSearch.getCityEnName())
+		);
+		if(rentSearch.getRegionEnName() != null && !rentSearch.getRegionEnName().equals("*")) {
+			boolQueryBuilder.filter(
+					QueryBuilders.termQuery(HouseIndexKey.REGION_EN_NAME, rentSearch.getRegionEnName())
+			);
+		}
+		RentValueBlock area = RentValueBlock.matchArea(rentSearch.getAreaBlock());
+		if(!area.equals(RentValueBlock.ALL)) {
+			RangeQueryBuilder rangeQuery = QueryBuilders.rangeQuery(HouseIndexKey.AREA);
+			if(area.getMin() > 0) {
+				rangeQuery.gte(area.getMin());
+			}
+			if(area.getMax() > 0) {
+				rangeQuery.lte(area.getMax());
+			}
+			boolQueryBuilder.filter(rangeQuery);
+		}
+		
+		RentValueBlock price = RentValueBlock.matchPrice(rentSearch.getPriceBlock());
+		if(!price.equals(RentValueBlock.ALL)) {
+			RangeQueryBuilder rangeQuery = QueryBuilders.rangeQuery(HouseIndexKey.PRICE);
+			if(price.getMin() > 0) {
+				rangeQuery.gte(price.getMin());
+			}
+			if(price.getMax() > 0) {
+				rangeQuery.lte(price.getMax());
+			}
+			boolQueryBuilder.filter(rangeQuery);
+		}
+		
+		if(rentSearch.getDirection() > 0) {
+			boolQueryBuilder.filter(
+					QueryBuilders.termQuery(HouseIndexKey.DIRECTION, rentSearch.getDirection())
+					);
+		}
+		if(rentSearch.getRentWay() > -1) {
+			boolQueryBuilder.filter(
+					QueryBuilders.termQuery(HouseIndexKey.RENT_WAY, rentSearch.getRentWay())
+				);
+		}
+		
+		boolQueryBuilder.must(QueryBuilders.multiMatchQuery(rentSearch.getKeywords(), 
+				HouseIndexKey.TITLE,
+				HouseIndexKey.TRAFFIC,
+				HouseIndexKey.DISTRICT,
+				HouseIndexKey.ROUND_SERVICE,
+				HouseIndexKey.SUBWAY_LINE_NAME,
+				HouseIndexKey.SUBWAY_STATION_NAME
+				));
+		
+		SearchRequestBuilder requestBuilder = this.esClient.prepareSearch(INDEX_NAME)//
+				.setTypes(INDEX_TYPE) //
+				.setQuery(boolQueryBuilder)//
+				.addSort(
+						HouseSort.getSortKey(rentSearch.getOrderBy()),
+						SortOrder.fromString(rentSearch.getOrderDirection())
+				)//
+				.setFrom(rentSearch.getStart())//
+				.setSize(rentSearch.getSize())//
+		;
+		log.debug(requestBuilder.toString());
+		
+		List<Long> houseIds = new ArrayList<>();
+		SearchResponse response = requestBuilder.get();
+		if(response.status() != RestStatus.OK) {
+			log.warn("Search status is not ok for " + requestBuilder);
+			return new ServiceMultiResult<>(0,houseIds);
+		}
+		response.getHits().forEach(hit -> {
+			houseIds.add(Longs.tryParse(String.valueOf(hit.getSource().get(HouseIndexKey.HOUSE_ID))));
+		});
+		return new ServiceMultiResult<>(response.getHits().getTotalHits(), houseIds);
 	}
 }

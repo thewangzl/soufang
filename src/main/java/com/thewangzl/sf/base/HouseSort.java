@@ -34,7 +34,7 @@ public class HouseSort {
 		return new Sort(direction, key);
 	}
 
-	private static String getSortKey(String key) {
+	public static String getSortKey(String key) {
 		if(!SORT_KEYS.contains(key)) {
 			key = DEFAULT_SORT_KEY;
 		}
