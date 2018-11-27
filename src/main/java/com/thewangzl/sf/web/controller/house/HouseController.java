@@ -188,7 +188,9 @@ public class HouseController {
 		model.addAttribute("agent", userDTOServiceResult.getResult());
 		model.addAttribute("house", houseDTO);
 		
-		model.addAttribute("houseCountInDistrict", 0);//TODO es的聚合功能
+		ServiceResult<Long> aggregateResult = this.searchService.aggregateDistrictHouse(city.getEnName(), region.getEnName(), houseDTO.getDistrict());
+		
+		model.addAttribute("houseCountInDistrict", aggregateResult.getResult());// es的聚合功能
     	
     	return "house-detail";
     }

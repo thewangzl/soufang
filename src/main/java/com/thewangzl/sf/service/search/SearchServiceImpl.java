@@ -23,6 +23,9 @@ import org.elasticsearch.index.reindex.BulkByScrollResponse;
 import org.elasticsearch.index.reindex.DeleteByQueryAction;
 import org.elasticsearch.index.reindex.DeleteByQueryRequestBuilder;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.search.aggregations.AggregationBuilder;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.search.suggest.Suggest.Suggestion;
 import org.elasticsearch.search.suggest.SuggestBuilder;
@@ -410,5 +413,38 @@ public class SearchServiceImpl implements ISearchService {
 		
 		template.setSuggests(suggests);
 		return true;
+	}
+
+	@Override
+	public ServiceResult<Long> aggregateDistrictHouse(String cityName, String regionName, String district) {
+		BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery()//
+				.filter(QueryBuilders.termQuery(HouseIndexKey.CITY_EN_NAME, cityName))//
+				.filter(QueryBuilders.termQuery(HouseIndexKey.REGION_EN_NAME, regionName))//
+				.filter(QueryBuilders.termQuery(HouseIndexKey.DISTRICT, district))//
+				;
+		
+		SearchRequestBuilder requestBuilder = this.esClient.prepareSearch(INDEX_NAME)//
+				.setTypes(INDEX_TYPE)//
+				.setQuery(boolQueryBuilder)//
+				.addAggregation(
+						AggregationBuilders.terms(HouseIndexKey.AGG_DISTRICT)//
+						.field(HouseIndexKey.DISTRICT)	//						
+				).setSize(0);
+		
+		log.debug(requestBuilder.toString());
+			
+				
+		SearchResponse response = requestBuilder.get();
+		if(response.status() == RestStatus.OK) {
+			Terms terms = response.getAggregations().get(HouseIndexKey.AGG_DISTRICT);
+			
+			if(terms.getBuckets() != null	&& !terms.getBuckets().isEmpty()) {
+				return ServiceResult.<Long>of(terms.getBucketByKey(district).getDocCount());
+			}
+		}else {
+			log.warn("Failed to aggregate for " + HouseIndexKey.AGG_DISTRICT);
+		}
+				
+		return ServiceResult.<Long> of(0L);
 	}
 }

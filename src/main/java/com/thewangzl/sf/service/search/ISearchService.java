@@ -34,4 +34,14 @@ public interface ISearchService {
 	 * @return
 	 */
 	ServiceResult<List<String>> suggest(String prefix);
+	
+	/**
+	 * 聚合特定小区的房间数
+	 * @param cityName
+	 * @param regionName
+	 * @param district
+	 * @return
+	 */
+	ServiceResult<Long> aggregateDistrictHouse(String cityName, String regionName, String district);
+	
 }
